@@ -56,7 +56,7 @@ export function parseCsv(text: string): string[][] {
 export function annotationsFromCsv(text: string): Annotation[] {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
-  const header = rows[0].map((h) => h.trim());
+  const header = (rows[0] ?? []).map((h) => h.trim());
   const idx = (name: string) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
   const get = (r: string[], name: string) => {
     const i = idx(name);

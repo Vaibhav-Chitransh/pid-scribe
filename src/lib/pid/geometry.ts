@@ -61,7 +61,7 @@ export function valueToPoints(value: string): Point[] {
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n));
   const pts: Point[] = [];
-  for (let i = 0; i + 1 < nums.length; i += 2) pts.push([nums[i], nums[i + 1]]);
+  for (let i = 0; i + 1 < nums.length; i += 2) pts.push([nums[i] as number, nums[i + 1] as number]);
   return pts;
 }
 
