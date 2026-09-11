@@ -539,7 +539,7 @@ export function PidCanvas({
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
-      {!image && (
+      {!image && annotations.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="rounded-md bg-white/80 px-4 py-2 text-sm text-neutral-500">
             Open a P&amp;ID image or load the demo project to start annotating
