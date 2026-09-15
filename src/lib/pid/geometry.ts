@@ -1,5 +1,7 @@
 import type { Annotation, BBox, Point } from "./types";
 
+export const DEFAULT_STROKE_WIDTH = 16;
+
 export function normalizeBBox(b: BBox): BBox {
   return {
     minX: Math.min(b.minX, b.maxX),
@@ -21,6 +23,17 @@ export function bboxOfPoints(points: Point[]): BBox {
   };
 }
 
+/** Envelope of every vertex, inflated by strokeWidth / 2 on all four sides. */
+export function polylineBBox(points: Point[], strokeWidth = DEFAULT_STROKE_WIDTH): BBox {
+  const b = bboxOfPoints(points);
+  const h = (Number.isFinite(strokeWidth) ? strokeWidth : DEFAULT_STROKE_WIDTH) / 2;
+  return { minX: b.minX - h, minY: b.minY - h, maxX: b.maxX + h, maxY: b.maxY + h };
+}
+
+export function strokeWidthOf(a: Annotation): number {
+  return Number.isFinite(a.strokeWidth as number) ? (a.strokeWidth as number) : DEFAULT_STROKE_WIDTH;
+}
+
 export function metrics(bbox: BBox) {
   const b = normalizeBBox(bbox);
   return {
@@ -33,13 +46,26 @@ export function metrics(bbox: BBox) {
 }
 
 export function annotationBBox(a: Annotation): BBox {
-  return a.geometry.type === "polyline" ? bboxOfPoints(a.geometry.points) : normalizeBBox(a.geometry.bbox);
+  return a.geometry.type === "polyline"
+    ? polylineBBox(a.geometry.points, strokeWidthOf(a))
+    : normalizeBBox(a.geometry.bbox);
+}
+
+/** Keeps a polyline annotation's cached bbox and Value in sync with its points. */
+export function refreshPolyline(a: Annotation): Annotation {
+  if (a.geometry.type !== "polyline") return a;
+  const points = a.geometry.points;
+  return {
+    ...a,
+    geometry: { type: "polyline", points, bbox: polylineBBox(points, strokeWidthOf(a)) },
+    value: pointsToValue(points),
+  };
 }
 
 export function translateAnnotation(a: Annotation, dx: number, dy: number): Annotation {
   if (a.geometry.type === "polyline") {
     const points = a.geometry.points.map((p) => [p[0] + dx, p[1] + dy] as Point);
-    return { ...a, geometry: { type: "polyline", points, bbox: bboxOfPoints(points) } };
+    return refreshPolyline({ ...a, geometry: { type: "polyline", points, bbox: bboxOfPoints(points) } });
   }
   const b = a.geometry.bbox;
   return {
@@ -52,7 +78,11 @@ export function translateAnnotation(a: Annotation, dx: number, dy: number): Anno
 }
 
 export function pointsToValue(points: Point[]): string {
-  return points.map((p) => `${Math.round(p[0])},${Math.round(p[1])}`).join(",");
+  return points.map((p) => `${round2(p[0])},${round2(p[1])}`).join(",");
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export function valueToPoints(value: string): Point[] {
@@ -66,12 +96,30 @@ export function valueToPoints(value: string): Point[] {
 }
 
 export function distToSegment(px: number, py: number, a: Point, b: Point): number {
+  return Math.hypot(px - closestOnSegment(px, py, a, b)[0], py - closestOnSegment(px, py, a, b)[1]);
+}
+
+export function closestOnSegment(px: number, py: number, a: Point, b: Point): Point {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const len2 = dx * dx + dy * dy;
   let t = len2 === 0 ? 0 : ((px - a[0]) * dx + (py - a[1]) * dy) / len2;
   t = Math.max(0, Math.min(1, t));
-  const cx = a[0] + t * dx;
-  const cy = a[1] + t * dy;
-  return Math.hypot(px - cx, py - cy);
+  return [a[0] + t * dx, a[1] + t * dy];
+}
+
+export interface NearestHit {
+  point: Point;
+  segIndex: number;
+  dist: number;
+}
+
+export function nearestOnPolyline(points: Point[], p: Point): NearestHit | null {
+  let best: NearestHit | null = null;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const c = closestOnSegment(p[0], p[1], points[i] as Point, points[i + 1] as Point);
+    const d = Math.hypot(p[0] - c[0], p[1] - c[1]);
+    if (!best || d < best.dist) best = { point: c, segIndex: i, dist: d };
+  }
+  return best;
 }
