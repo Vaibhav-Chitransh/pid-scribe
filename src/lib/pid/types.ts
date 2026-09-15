@@ -15,6 +15,10 @@ export type Geometry =
 
 export interface Annotation {
   id: string;
+  /** Session-stable human id, e.g. "C-12". Assigned in creation order per prefix. */
+  shortId?: string;
+  /** Rendered stroke width for polyline pipes (image units). */
+  strokeWidth?: number;
   mainLabel: MainLabel;
   subLabel: string;
   geometry: Geometry;

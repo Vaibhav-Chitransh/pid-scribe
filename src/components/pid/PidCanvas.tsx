@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   annotationBBox,
   bboxOfPoints,
   distToSegment,
+  nearestOnPolyline,
   normalizeBBox,
+  polylineBBox,
   pointsToValue,
+  refreshPolyline,
+  strokeWidthOf,
   translateAnnotation,
 } from "@/lib/pid/geometry";
+import { idLabel } from "@/lib/pid/ids";
 import type { Annotation, Point } from "@/lib/pid/types";
 import { uuid } from "@/lib/pid/types";
 
-export type Tool = "select" | "rect" | "polyline" | "branch" | "crossing" | "port" | "pan";
+export type Tool = "select" | "rect" | "polyline" | "branch" | "crossing" | "port" | "split" | "pan";
 
 export interface Layers {
   view: boolean;
@@ -20,6 +26,7 @@ export interface Layers {
   markers: boolean;
   labels: boolean;
   links: boolean;
+  ids: boolean;
 }
 
 export interface Viewport {
@@ -28,18 +35,30 @@ export interface Viewport {
   ty: number;
 }
 
+export interface SplitRequest {
+  id: string;
+  point: Point;
+  segIndex: number;
+  vertexIndex: number | null;
+}
+
 interface Props {
   image: HTMLImageElement | null;
   annotations: Annotation[];
   selectedIds: string[];
+  hoveredId: string | null;
+  exportRows: Record<string, number>;
   tool: Tool;
   layers: Layers;
   viewport: Viewport;
-  defaults: { mainLabel: Annotation["mainLabel"]; subLabel: string };
+  defaults: { mainLabel: Annotation["mainLabel"]; subLabel: string; pipeStrokeWidth: number };
   setViewport: (v: Viewport | ((v: Viewport) => Viewport)) => void;
   onSelect: (ids: string[]) => void;
+  onHover: (id: string | null) => void;
   onUpdate: (updated: Annotation[]) => void;
+  onCommit: (updated: Annotation[]) => void;
   onCreate: (a: Annotation) => void;
+  onSplit: (req: SplitRequest) => void;
   onDeleteSelected: () => void;
   onCursor: (p: { x: number; y: number } | null) => void;
 }
@@ -81,29 +100,51 @@ type Drag =
   | { kind: "vertex"; id: string; index: number }
   | { kind: "rect"; start: Point; current: Point };
 
+interface Ghost {
+  id: string;
+  point: Point;
+  segIndex: number;
+}
+
+interface SplitHint {
+  id: string;
+  point: Point;
+  segIndex: number;
+  vertexIndex: number | null;
+}
+
 export function PidCanvas({
   image,
   annotations,
   selectedIds,
+  hoveredId,
+  exportRows,
   tool,
   layers,
   viewport,
   defaults,
   setViewport,
   onSelect,
+  onHover,
   onUpdate,
+  onCommit,
   onCreate,
+  onSplit,
   onDeleteSelected,
   onCursor,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<Drag>({ kind: "none" });
+  const dirtyRef = useRef<Annotation[] | null>(null);
   const spaceRef = useRef(false);
   const [draft, setDraft] = useState<Point[]>([]);
   const [hover, setHover] = useState<Point | null>(null);
   const [rectPreview, setRectPreview] = useState<[Point, Point] | null>(null);
   const [shift, setShift] = useState(false);
+  const [ghost, setGhost] = useState<Ghost | null>(null);
+  const [splitHint, setSplitHint] = useState<SplitHint | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; ghost: Ghost } | null>(null);
 
   const toImage = useCallback(
     (clientX: number, clientY: number): Point => {
@@ -174,21 +215,47 @@ export function PidCanvas({
     for (const a of annotations) {
       if (!visible(a, layers)) continue;
       const selected = selectedIds.includes(a.id);
+      const hovered = hoveredId === a.id;
       const color = colorOf(a);
       ctx.globalAlpha = a.locked ? 0.5 : 1;
-      ctx.lineWidth = (selected ? 3 : 1.5) / s;
-      ctx.strokeStyle = selected ? COLORS.select : color;
+      ctx.lineWidth = (selected ? 3 : hovered ? 2.5 : 1.5) / s;
+      ctx.strokeStyle = selected ? COLORS.select : hovered ? "#0ea5e9" : color;
       const b = annotationBBox(a);
 
       if (a.geometry.type === "polyline") {
         const pts = a.geometry.points;
-        ctx.lineWidth = (selected ? 5 : 3.5) / s;
+        const sw = strokeWidthOf(a);
+        ctx.save();
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.lineWidth = sw;
+        ctx.strokeStyle = selected ? COLORS.select : hovered ? "#0ea5e9" : COLORS.pipe;
+        ctx.globalAlpha = (a.locked ? 0.5 : 1) * 0.65;
+        ctx.beginPath();
+        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1])));
+        ctx.stroke();
+        ctx.restore();
+
+        // centerline
+        ctx.lineWidth = (selected ? 2.5 : 1.5) / s;
         ctx.strokeStyle = selected ? COLORS.select : COLORS.pipe;
         ctx.beginPath();
         pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1])));
         ctx.stroke();
+
         if (selected) {
+          // dashed derived bounding box
+          const pb = polylineBBox(pts, sw);
+          ctx.save();
+          ctx.setLineDash([6 / s, 4 / s]);
+          ctx.strokeStyle = "rgba(37,99,235,0.7)";
+          ctx.lineWidth = 1 / s;
+          ctx.strokeRect(pb.minX, pb.minY, pb.maxX - pb.minX, pb.maxY - pb.minY);
+          ctx.restore();
+
           ctx.fillStyle = "#ffffff";
+          ctx.strokeStyle = COLORS.select;
+          ctx.lineWidth = 2 / s;
           for (const p of pts) {
             ctx.beginPath();
             ctx.arc(p[0], p[1], 5 / s, 0, Math.PI * 2);
@@ -257,6 +324,30 @@ export function PidCanvas({
       ctx.globalAlpha = 1;
     }
 
+    // ghost bend vertex
+    if (ghost) {
+      ctx.strokeStyle = COLORS.select;
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.lineWidth = 2 / s;
+      ctx.beginPath();
+      ctx.arc(ghost.point[0], ghost.point[1], 6 / s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // split marker
+    if (splitHint) {
+      const r = (splitHint.vertexIndex != null ? 8 : 6) / s;
+      ctx.strokeStyle = splitHint.vertexIndex != null ? "#f59e0b" : "#111827";
+      ctx.lineWidth = 2 / s;
+      ctx.beginPath();
+      ctx.moveTo(splitHint.point[0] - r, splitHint.point[1] - r);
+      ctx.lineTo(splitHint.point[0] + r, splitHint.point[1] + r);
+      ctx.moveTo(splitHint.point[0] + r, splitHint.point[1] - r);
+      ctx.lineTo(splitHint.point[0] - r, splitHint.point[1] + r);
+      ctx.stroke();
+    }
+
     // drafts
     if (draft.length > 0) {
       const pts = hover ? [...draft, snap(draft[draft.length - 1] as Point, hover, shift)] : draft;
@@ -283,7 +374,47 @@ export function PidCanvas({
     }
 
     ctx.restore();
-  }, [image, annotations, selectedIds, layers, viewport, draft, hover, rectPreview, shift]);
+
+    // ---- id badges (screen space) ----
+    if (layers.ids && s >= 0.4) {
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textBaseline = "top";
+      for (const a of annotations) {
+        if (!visible(a, layers)) continue;
+        const anchor: Point =
+          a.geometry.type === "polyline"
+            ? ((a.geometry.points[0] ?? [0, 0]) as Point)
+            : [annotationBBox(a).minX, annotationBBox(a).minY];
+        const sx = anchor[0] * s + viewport.tx;
+        const sy = anchor[1] * s + viewport.ty;
+        if (sx < -80 || sy < -30 || sx > w + 80 || sy > h + 30) continue;
+        const text = idLabel(a, exportRows);
+        const tw = ctx.measureText(text).width;
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = colorOf(a);
+        roundRect(ctx, sx, sy - 16, tw + 4, 14, 3);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(text, sx + 2, sy - 14);
+      }
+      ctx.textBaseline = "alphabetic";
+    }
+  }, [
+    image,
+    annotations,
+    selectedIds,
+    hoveredId,
+    exportRows,
+    layers,
+    viewport,
+    draft,
+    hover,
+    rectPreview,
+    shift,
+    ghost,
+    splitHint,
+  ]);
 
   useEffect(() => {
     draw();
@@ -307,7 +438,10 @@ export function PidCanvas({
       }
       if (typing) return;
       if (e.key === "Enter" && draft.length >= 2) finishPolyline();
-      if (e.key === "Escape") setDraft([]);
+      if (e.key === "Escape") {
+        setDraft([]);
+        setMenu(null);
+      }
       if (e.key === "Delete" || e.key === "Backspace") onDeleteSelected();
     };
     const up = (e: KeyboardEvent) => {
@@ -330,8 +464,9 @@ export function PidCanvas({
       if (!a || !visible(a, layers)) continue;
       if (a.geometry.type === "polyline") {
         const pts = a.geometry.points;
+        const half = strokeWidthOf(a) / 2;
         for (let j = 0; j + 1 < pts.length; j++) {
-          if (distToSegment(p[0], p[1], pts[j] as Point, pts[j + 1] as Point) <= tol + 3 / viewport.scale) return a;
+          if (distToSegment(p[0], p[1], pts[j] as Point, pts[j + 1] as Point) <= tol + half) return a;
         }
       } else {
         const b = annotationBBox(a);
@@ -368,6 +503,65 @@ export function PidCanvas({
     return null;
   }
 
+  /** Closest point on a selected, unlocked pipe (for the insert-bend ghost). */
+  function ghostAt(p: Point): Ghost | null {
+    const tol = Math.max(10 / viewport.scale, 4);
+    for (const id of selectedIds) {
+      const a = annotations.find((x) => x.id === id);
+      if (!a || a.geometry.type !== "polyline") continue;
+      if (a.locked) continue;
+      const near = nearestOnPolyline(a.geometry.points, p);
+      if (!near || near.dist > tol + strokeWidthOf(a) / 2) continue;
+      // don't shadow an existing vertex handle
+      const vtol = 8 / viewport.scale;
+      const onVertex = a.geometry.points.some((v) => Math.hypot(p[0] - v[0], p[1] - v[1]) <= vtol);
+      if (onVertex) return null;
+      return { id, point: near.point, segIndex: near.segIndex };
+    }
+    return null;
+  }
+
+  function anyPipeGhost(p: Point): Ghost | null {
+    const tol = Math.max(12 / viewport.scale, 4);
+    for (let i = annotations.length - 1; i >= 0; i--) {
+      const a = annotations[i];
+      if (!a || a.geometry.type !== "polyline" || !visible(a, layers)) continue;
+      const near = nearestOnPolyline(a.geometry.points, p);
+      if (near && near.dist <= tol + strokeWidthOf(a) / 2) return { id: a.id, point: near.point, segIndex: near.segIndex };
+    }
+    return null;
+  }
+
+  function splitAt(p: Point): SplitHint | null {
+    const g = anyPipeGhost(p);
+    if (!g) return null;
+    const a = annotations.find((x) => x.id === g.id);
+    if (!a || a.geometry.type !== "polyline") return null;
+    const snapTol = 10 / viewport.scale;
+    let vertexIndex: number | null = null;
+    a.geometry.points.forEach((v, i) => {
+      if (Math.hypot(p[0] - v[0], p[1] - v[1]) <= snapTol) vertexIndex = i;
+    });
+    const point = vertexIndex != null ? ((a.geometry.points[vertexIndex] as Point) ?? g.point) : g.point;
+    return { id: g.id, point, segIndex: g.segIndex, vertexIndex };
+  }
+
+  function insertBend(g: Ghost) {
+    const a = annotations.find((x) => x.id === g.id);
+    if (!a || a.geometry.type !== "polyline") return;
+    if (a.locked) {
+      toast.error("Pipe is locked — unlock to edit");
+      return;
+    }
+    const pts = [...a.geometry.points];
+    pts.splice(g.segIndex + 1, 0, [g.point[0], g.point[1]] as Point);
+    const next = refreshPolyline({ ...a, geometry: { type: "polyline", points: pts, bbox: bboxOfPoints(pts) } });
+    onCommit([next]);
+    onSelect([a.id]);
+    setGhost(null);
+    dragRef.current = { kind: "vertex", id: a.id, index: g.segIndex + 1 };
+  }
+
   function makeAnnotation(mainLabel: Annotation["mainLabel"], subLabel: string, bbox: Annotation["geometry"]): Annotation {
     return {
       id: uuid(),
@@ -394,11 +588,13 @@ export function PidCanvas({
 
   function finishPolyline() {
     if (draft.length >= 2) {
+      const sw = defaults.pipeStrokeWidth;
       const a = makeAnnotation("Component", "Pipe", {
         type: "polyline",
         points: draft,
-        bbox: bboxOfPoints(draft),
+        bbox: polylineBBox(draft, sw),
       });
+      a.strokeWidth = sw;
       a.value = pointsToValue(draft);
       onCreate(a);
     }
@@ -407,6 +603,7 @@ export function PidCanvas({
 
   /* ---------- pointer ---------- */
   function onPointerDown(e: React.PointerEvent) {
+    setMenu(null);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const p = toImage(e.clientX, e.clientY);
 
@@ -415,6 +612,18 @@ export function PidCanvas({
       return;
     }
     if (e.button !== 0) return;
+
+    if (tool === "split") {
+      const hint = splitAt(p);
+      if (!hint) return;
+      const a = annotations.find((x) => x.id === hint.id);
+      if (a?.locked) {
+        toast.error("Pipe is locked — unlock to edit");
+        return;
+      }
+      onSplit(hint);
+      return;
+    }
 
     if (tool === "select") {
       const handle = hitHandle(p);
@@ -425,6 +634,10 @@ export function PidCanvas({
       const vtx = hitVertex(p);
       if (vtx) {
         dragRef.current = { kind: "vertex", id: vtx.id, index: vtx.index };
+        return;
+      }
+      if (ghost) {
+        insertBend(ghost);
         return;
       }
       const hit = hitTest(p);
@@ -464,12 +677,33 @@ export function PidCanvas({
     onCursor({ x: Math.round(p[0]), y: Math.round(p[1]) });
     setHover(p);
     const d = dragRef.current;
+
+    if (d.kind === "none") {
+      if (tool === "split") {
+        setSplitHint(splitAt(p));
+        setGhost(null);
+      } else if (tool === "select") {
+        setSplitHint(null);
+        setGhost(ghostAt(p));
+      } else {
+        setGhost(null);
+        setSplitHint(null);
+      }
+      if (tool === "select" || tool === "split") {
+        const hit = hitTest(p);
+        onHover(hit ? hit.id : null);
+      }
+      return;
+    }
+
     if (d.kind === "pan") {
       setViewport({ ...viewport, tx: d.tx + (e.clientX - d.sx), ty: d.ty + (e.clientY - d.sy) });
     } else if (d.kind === "move") {
       const dx = p[0] - d.sx;
       const dy = p[1] - d.sy;
-      onUpdate(d.originals.map((o) => withValue(translateAnnotation(o, dx, dy))));
+      const next = d.originals.map((o) => translateAnnotation(o, dx, dy));
+      dirtyRef.current = next;
+      onUpdate(next);
     } else if (d.kind === "resize") {
       const b = normalizeBBox(annotationBBox(d.original));
       const nb = { ...b };
@@ -477,12 +711,18 @@ export function PidCanvas({
       else nb.maxX = p[0];
       if (d.corner === 0 || d.corner === 1) nb.minY = p[1];
       else nb.maxY = p[1];
-      onUpdate([{ ...d.original, geometry: { type: "bbox", bbox: normalizeBBox(nb) } }]);
+      const next = [{ ...d.original, geometry: { type: "bbox" as const, bbox: normalizeBBox(nb) } }];
+      dirtyRef.current = next;
+      onUpdate(next);
     } else if (d.kind === "vertex") {
       const a = annotations.find((x) => x.id === d.id);
       if (a && a.geometry.type === "polyline") {
-        const pts = a.geometry.points.map((v, i) => (i === d.index ? ([p[0], p[1]] as Point) : v));
-        onUpdate([withValue({ ...a, geometry: { type: "polyline", points: pts, bbox: bboxOfPoints(pts) } })]);
+        const prev = (a.geometry.points[d.index === 0 ? 1 : d.index - 1] ?? [p[0], p[1]]) as Point;
+        const target = e.shiftKey ? snap(prev, p, true) : ([p[0], p[1]] as Point);
+        const pts = a.geometry.points.map((v, i) => (i === d.index ? target : v));
+        const next = [refreshPolyline({ ...a, geometry: { type: "polyline", points: pts, bbox: bboxOfPoints(pts) } })];
+        dirtyRef.current = next;
+        onUpdate(next);
       }
     } else if (d.kind === "rect") {
       dragRef.current = { ...d, current: p };
@@ -504,6 +744,10 @@ export function PidCanvas({
       }
       setRectPreview(null);
     }
+    if ((d.kind === "vertex" || d.kind === "move" || d.kind === "resize") && dirtyRef.current) {
+      onCommit(dirtyRef.current);
+    }
+    dirtyRef.current = null;
     dragRef.current = { kind: "none" };
   }
 
@@ -520,8 +764,37 @@ export function PidCanvas({
     });
   }
 
+  function onDoubleClick(e: React.MouseEvent) {
+    if (draft.length >= 2) {
+      finishPolyline();
+      return;
+    }
+    if (tool !== "select") return;
+    const p = toImage(e.clientX, e.clientY);
+    const g = ghostAt(p) ?? anyPipeGhost(p);
+    if (g) insertBend(g);
+  }
+
+  function onContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    const p = toImage(e.clientX, e.clientY);
+    const g = anyPipeGhost(p);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!g || !rect) {
+      setMenu(null);
+      return;
+    }
+    setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, ghost: g });
+  }
+
   const cursor =
-    tool === "pan" ? "grab" : tool === "select" ? "default" : "crosshair";
+    tool === "pan"
+      ? "grab"
+      : tool === "select"
+        ? ghost
+          ? "crosshair"
+          : "default"
+        : "crosshair";
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-[#f5f5f5]">
@@ -534,11 +807,47 @@ export function PidCanvas({
         onPointerLeave={() => {
           onCursor(null);
           setHover(null);
+          setGhost(null);
+          setSplitHint(null);
+          onHover(null);
         }}
-        onDoubleClick={() => draft.length >= 2 && finishPolyline()}
+        onDoubleClick={onDoubleClick}
         onWheel={onWheel}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={onContextMenu}
       />
+      {menu && (
+        <div
+          className="absolute z-10 min-w-[160px] overflow-hidden rounded-md border border-neutral-300 bg-white text-xs shadow-lg"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseLeave={() => setMenu(null)}
+        >
+          <button
+            className="block w-full px-3 py-2 text-left hover:bg-neutral-100"
+            onClick={() => {
+              insertBend(menu.ghost);
+              setMenu(null);
+            }}
+          >
+            Insert bend here
+          </button>
+          <button
+            className="block w-full px-3 py-2 text-left hover:bg-neutral-100"
+            onClick={() => {
+              const hint = splitAt(menu.ghost.point);
+              setMenu(null);
+              if (!hint) return;
+              const a = annotations.find((x) => x.id === hint.id);
+              if (a?.locked) {
+                toast.error("Pipe is locked — unlock to edit");
+                return;
+              }
+              onSplit(hint);
+            }}
+          >
+            Split pipe here
+          </button>
+        </div>
+      )}
       {!image && annotations.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="rounded-md bg-white/80 px-4 py-2 text-sm text-neutral-500">
@@ -550,9 +859,14 @@ export function PidCanvas({
   );
 }
 
-function withValue(a: Annotation): Annotation {
-  if (a.geometry.type === "polyline") return { ...a, value: pointsToValue(a.geometry.points) };
-  return a;
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function corners(b: { minX: number; minY: number; maxX: number; maxY: number }): Point[] {
