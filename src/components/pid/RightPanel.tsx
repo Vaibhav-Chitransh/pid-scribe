@@ -1,14 +1,19 @@
+import { useState } from "react";
 import { Copy, PanelRightClose, Trash2 } from "lucide-react";
 import type { Annotation, MainLabel, ProjectImage } from "@/lib/pid/types";
 import { SUB_LABELS } from "@/lib/pid/types";
 import { annotationBBox, metrics } from "@/lib/pid/geometry";
+import { idLabel } from "@/lib/pid/ids";
+
+type Defaults = { mainLabel: MainLabel; subLabel: string; pipeStrokeWidth: number };
 
 interface Props {
   image: ProjectImage | null;
   annotations: Annotation[];
   selectedIds: string[];
-  defaults: { mainLabel: MainLabel; subLabel: string };
-  setDefaults: (d: { mainLabel: MainLabel; subLabel: string }) => void;
+  exportRows: Record<string, number>;
+  defaults: Defaults;
+  setDefaults: (d: Defaults) => void;
   onPatch: (id: string, patch: Partial<Annotation>) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
