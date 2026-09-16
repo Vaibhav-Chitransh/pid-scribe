@@ -75,13 +75,21 @@ function Index() {
   const [tab, setTab] = useState<Tab>("manual");
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
-  const [defaults, setDefaults] = useState<{ mainLabel: MainLabel; subLabel: string }>({
+  const [defaults, setDefaults] = useState<{
+    mainLabel: MainLabel;
+    subLabel: string;
+    pipeStrokeWidth: number;
+  }>({
     mainLabel: "Component",
     subLabel: "Equipment",
+    pipeStrokeWidth: 16,
   });
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  const exportRows = useMemo(() => exportRowMap(annotations), [annotations]);
 
   const past = useRef<Annotation[][]>([]);
   const future = useRef<Annotation[][]>([]);
