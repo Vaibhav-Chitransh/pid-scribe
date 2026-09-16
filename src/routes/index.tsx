@@ -493,8 +493,11 @@ function Index() {
             image={image}
             annotations={annotations}
             selectedIds={selectedIds}
+            hoveredId={hoveredId}
+            exportRows={exportRows}
             layers={layers}
             onSelect={setSelectedIds}
+            onHover={setHoveredId}
             onOpenImage={openImage}
             onImportCsv={importCsv}
             onImportJson={importJson}
