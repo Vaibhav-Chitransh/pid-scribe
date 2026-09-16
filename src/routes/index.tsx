@@ -380,6 +380,7 @@ function Index() {
         b: "branch",
         c: "crossing",
         o: "port",
+        s: "split",
         h: "pan",
       };
       const next = map[e.key.toLowerCase()];
