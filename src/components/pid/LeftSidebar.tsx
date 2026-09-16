@@ -3,6 +3,7 @@ import { FileUp, ImagePlus, Lock, PanelLeftClose, Search, Sparkles } from "lucid
 import type { Annotation, ProjectImage } from "@/lib/pid/types";
 import type { Layers } from "./PidCanvas";
 import { annotationBBox } from "@/lib/pid/geometry";
+import { idLabel } from "@/lib/pid/ids";
 
 interface Props {
   image: ProjectImage | null;
