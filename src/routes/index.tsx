@@ -24,7 +24,8 @@ import { RightPanel } from "@/components/pid/RightPanel";
 import { ExportTab } from "@/components/pid/ExportTab";
 import { annotationsFromCsv } from "@/lib/pid/csv";
 import { buildDemoAnnotations } from "@/lib/pid/demo";
-import { translateAnnotation } from "@/lib/pid/geometry";
+import { bboxOfPoints, refreshPolyline, translateAnnotation, metrics, annotationBBox } from "@/lib/pid/geometry";
+import { allocateShortId, ensureShortIds, exportRowMap } from "@/lib/pid/ids";
 import type { Annotation, MainLabel, ProjectImage, ProjectJson } from "@/lib/pid/types";
 import { uuid } from "@/lib/pid/types";
 
