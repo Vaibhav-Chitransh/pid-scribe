@@ -18,13 +18,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { PidCanvas, type Layers, type Tool, type Viewport } from "@/components/pid/PidCanvas";
+import { PidCanvas, type Layers, type SplitRequest, type Tool, type Viewport } from "@/components/pid/PidCanvas";
 import { LeftSidebar } from "@/components/pid/LeftSidebar";
 import { RightPanel } from "@/components/pid/RightPanel";
 import { ExportTab } from "@/components/pid/ExportTab";
 import { annotationsFromCsv } from "@/lib/pid/csv";
 import { buildDemoAnnotations } from "@/lib/pid/demo";
-import { translateAnnotation } from "@/lib/pid/geometry";
+import { bboxOfPoints, refreshPolyline, translateAnnotation, metrics, annotationBBox } from "@/lib/pid/geometry";
+import { allocateShortId, ensureShortIds, exportRowMap } from "@/lib/pid/ids";
 import type { Annotation, MainLabel, ProjectImage, ProjectJson } from "@/lib/pid/types";
 import { uuid } from "@/lib/pid/types";
 
@@ -60,6 +61,7 @@ const DEFAULT_LAYERS: Layers = {
   markers: true,
   labels: true,
   links: true,
+  ids: true,
 };
 
 type Tab = "manual" | "auto" | "review" | "export";
@@ -73,13 +75,21 @@ function Index() {
   const [tab, setTab] = useState<Tab>("manual");
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
-  const [defaults, setDefaults] = useState<{ mainLabel: MainLabel; subLabel: string }>({
+  const [defaults, setDefaults] = useState<{
+    mainLabel: MainLabel;
+    subLabel: string;
+    pipeStrokeWidth: number;
+  }>({
     mainLabel: "Component",
     subLabel: "Equipment",
+    pipeStrokeWidth: 16,
   });
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  const exportRows = useMemo(() => exportRowMap(annotations), [annotations]);
 
   const past = useRef<Annotation[][]>([]);
   const future = useRef<Annotation[][]>([]);
@@ -153,6 +163,14 @@ function Index() {
     });
   }, []);
 
+  /* ---------- short ids ---------- */
+  useEffect(() => {
+    setAnnotations((prev) => {
+      const next = ensureShortIds(prev);
+      return next === prev ? prev : next;
+    });
+  }, [annotations]);
+
   /* ---------- annotation ops ---------- */
   const onCreate = (a: Annotation) => {
     commit((prev) => [...prev, a]);
@@ -163,6 +181,64 @@ function Index() {
     const map = new Map(updated.map((a) => [a.id, a]));
     setAnnotations((prev) => prev.map((a) => (map.has(a.id) && !a.locked ? map.get(a.id)! : a)));
   };
+
+  const onCommit = (updated: Annotation[]) => {
+    const map = new Map(updated.map((a) => [a.id, a]));
+    commit((prev) => prev.map((a) => (map.has(a.id) && !a.locked ? map.get(a.id)! : a)));
+  };
+
+  const onSplit = (req: SplitRequest) => {
+    const src = annotations.find((a) => a.id === req.id);
+    if (!src || src.geometry.type !== "polyline") return;
+    if (src.locked) {
+      toast.error("Pipe is locked — unlock to edit");
+      return;
+    }
+    const pts = src.geometry.points;
+    let left: typeof pts;
+    let right: typeof pts;
+    if (req.vertexIndex != null) {
+      if (req.vertexIndex <= 0 || req.vertexIndex >= pts.length - 1) {
+        toast.error("Cannot split at an end point");
+        return;
+      }
+      left = pts.slice(0, req.vertexIndex + 1);
+      right = pts.slice(req.vertexIndex);
+    } else {
+      left = [...pts.slice(0, req.segIndex + 1), req.point];
+      right = [req.point, ...pts.slice(req.segIndex + 1)];
+    }
+    if (left.length < 2 || right.length < 2) {
+      toast.error("Split point is too close to an end");
+      return;
+    }
+
+    const make = (points: typeof pts): Annotation =>
+      refreshPolyline({
+        ...src,
+        id: uuid(),
+        shortId: allocateShortId(src),
+        geometry: { type: "polyline", points, bbox: bboxOfPoints(points) },
+      });
+    const a = make(left);
+    const b = make(right);
+
+    commit((prev) => {
+      const withSplit = prev.flatMap((x) => (x.id === src.id ? [a, b] : [x]));
+      // re-parent anything linked to the original pipe to the nearer half
+      return withSplit.map((x) => {
+        if (x.linkedElementId !== src.id) return x;
+        const c = metrics(annotationBBox(x));
+        const da = metrics(annotationBBox(a));
+        const db = metrics(annotationBBox(b));
+        const dist = (m: typeof da) => Math.hypot(c.centerX - m.centerX, c.centerY - m.centerY);
+        return { ...x, linkedElementId: dist(da) <= dist(db) ? a.id : b.id, linkedElementLine: null };
+      });
+    });
+    setSelectedIds([a.id, b.id]);
+    toast.success(`Pipe split into ${a.shortId} and ${b.shortId}`);
+  };
+
 
   const onPatch = (id: string, patch: Partial<Annotation>) =>
     commit((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
@@ -304,6 +380,7 @@ function Index() {
         b: "branch",
         c: "crossing",
         o: "port",
+        s: "split",
         h: "pan",
       };
       const next = map[e.key.toLowerCase()];
@@ -321,6 +398,7 @@ function Index() {
     ["branch", "Branch (B)", Squircle],
     ["crossing", "Crossing (C)", Diamond],
     ["port", "Port (O)", Circle],
+    ["split", "Split pipe (S)", Scissors],
     ["pan", "Pan (H)", Hand],
   ];
 
@@ -417,8 +495,11 @@ function Index() {
             image={image}
             annotations={annotations}
             selectedIds={selectedIds}
+            hoveredId={hoveredId}
+            exportRows={exportRows}
             layers={layers}
             onSelect={setSelectedIds}
+            onHover={setHoveredId}
             onOpenImage={openImage}
             onImportCsv={importCsv}
             onImportJson={importJson}
@@ -434,14 +515,19 @@ function Index() {
               image={imgEl}
               annotations={annotations}
               selectedIds={selectedIds}
+              hoveredId={hoveredId}
+              exportRows={exportRows}
               tool={tool}
               layers={layers}
               viewport={viewport}
               defaults={defaults}
               setViewport={setViewport}
               onSelect={setSelectedIds}
+              onHover={setHoveredId}
               onUpdate={onUpdate}
+              onCommit={onCommit}
               onCreate={onCreate}
+              onSplit={onSplit}
               onDeleteSelected={onDeleteSelected}
               onCursor={setCursor}
             />
@@ -470,6 +556,7 @@ function Index() {
             image={image}
             annotations={annotations}
             selectedIds={selectedIds}
+            exportRows={exportRows}
             defaults={defaults}
             setDefaults={setDefaults}
             onPatch={onPatch}

@@ -1,14 +1,19 @@
+import { useState } from "react";
 import { Copy, PanelRightClose, Trash2 } from "lucide-react";
 import type { Annotation, MainLabel, ProjectImage } from "@/lib/pid/types";
 import { SUB_LABELS } from "@/lib/pid/types";
 import { annotationBBox, metrics } from "@/lib/pid/geometry";
+import { idLabel } from "@/lib/pid/ids";
+
+type Defaults = { mainLabel: MainLabel; subLabel: string; pipeStrokeWidth: number };
 
 interface Props {
   image: ProjectImage | null;
   annotations: Annotation[];
   selectedIds: string[];
-  defaults: { mainLabel: MainLabel; subLabel: string };
-  setDefaults: (d: { mainLabel: MainLabel; subLabel: string }) => void;
+  exportRows: Record<string, number>;
+  defaults: Defaults;
+  setDefaults: (d: Defaults) => void;
   onPatch: (id: string, patch: Partial<Annotation>) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -21,6 +26,7 @@ export function RightPanel({
   image,
   annotations,
   selectedIds,
+  exportRows,
   defaults,
   setDefaults,
   onPatch,
@@ -51,7 +57,7 @@ export function RightPanel({
           value={defaults.mainLabel}
           onChange={(e) => {
             const main = e.target.value as MainLabel;
-            setDefaults({ mainLabel: main, subLabel: SUB_LABELS[main][0] ?? "" });
+            setDefaults({ ...defaults, mainLabel: main, subLabel: SUB_LABELS[main][0] ?? "" });
           }}
         >
           {(Object.keys(SUB_LABELS) as MainLabel[]).map((m) => (
@@ -71,6 +77,18 @@ export function RightPanel({
             </option>
           ))}
         </select>
+        <label className="block space-y-1">
+          <span className="text-[11px] uppercase tracking-wider text-neutral-400">Pipe stroke width</span>
+          <input
+            type="number"
+            min={1}
+            className={field}
+            value={defaults.pipeStrokeWidth}
+            onChange={(e) =>
+              setDefaults({ ...defaults, pipeStrokeWidth: Math.max(1, Number(e.target.value) || 1) })
+            }
+          />
+        </label>
       </div>
 
       {!selected ? (
@@ -97,6 +115,7 @@ export function RightPanel({
           key={selected.id}
           annotation={selected}
           annotations={annotations}
+          exportRows={exportRows}
           onPatch={onPatch}
           onDelete={onDelete}
           onDuplicate={onDuplicate}
@@ -109,12 +128,14 @@ export function RightPanel({
 function SelectedEditor({
   annotation,
   annotations,
+  exportRows,
   onPatch,
   onDelete,
   onDuplicate,
 }: {
   annotation: Annotation;
   annotations: Annotation[];
+  exportRows: Record<string, number>;
   onPatch: (id: string, patch: Partial<Annotation>) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -122,9 +143,27 @@ function SelectedEditor({
   const a = annotation;
   const m = metrics(annotationBBox(a));
   const isPipe = a.geometry.type === "polyline";
+  const [linkQuery, setLinkQuery] = useState("");
+
+  const linkOptions = annotations.filter((x) => {
+    if (x.id === a.id) return false;
+    const q = linkQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (x.shortId ?? "").toLowerCase().includes(q) ||
+      x.subLabel.toLowerCase().includes(q) ||
+      (x.value ?? "").toLowerCase().includes(q) ||
+      String(exportRows[x.id] ?? "").includes(q)
+    );
+  });
 
   return (
     <div className="space-y-3 p-3 text-xs">
+      <div className="flex items-center justify-between rounded-md border border-white/10 bg-white/5 px-2 py-1.5">
+        <span className="text-[11px] uppercase tracking-wider text-neutral-400">ID</span>
+        <span className="font-mono text-[11px] text-neutral-100">{idLabel(a, exportRows)}</span>
+      </div>
+
       <Row label="MainLabel">
         <select
           className={field}
@@ -165,22 +204,27 @@ function SelectedEditor({
         <input className={field} value={a.subType} onChange={(e) => onPatch(a.id, { subType: e.target.value })} />
       </Row>
 
-      <Row label="LinkedElement">
+      <Row label="Link to">
+        <input
+          className={`${field} mb-1`}
+          placeholder="Search by id, row, label or value"
+          value={linkQuery}
+          onChange={(e) => setLinkQuery(e.target.value)}
+        />
         <select
           className={field}
           value={a.linkedElementId ?? ""}
-          onChange={(e) => onPatch(a.id, { linkedElementId: e.target.value || null })}
+          onChange={(e) => onPatch(a.id, { linkedElementId: e.target.value || null, linkedElementLine: null })}
         >
           <option value="" className="bg-[#1e1e2e]">
             — none —
           </option>
-          {annotations
-            .filter((x) => x.id !== a.id)
-            .map((x, i) => (
-              <option key={x.id} value={x.id} className="bg-[#1e1e2e]">
-                #{i + 1} {x.subLabel} {x.value ? `(${x.value.slice(0, 14)})` : ""}
-              </option>
-            ))}
+          {linkOptions.map((x) => (
+            <option key={x.id} value={x.id} className="bg-[#1e1e2e]">
+              {idLabel(x, exportRows)} · {x.subLabel}
+              {x.value ? ` (${x.value.slice(0, 14)})` : ""}
+            </option>
+          ))}
         </select>
       </Row>
 
