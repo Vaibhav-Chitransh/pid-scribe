@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { PidCanvas, type Layers, type Tool, type Viewport } from "@/components/pid/PidCanvas";
+import { PidCanvas, type Layers, type SplitRequest, type Tool, type Viewport } from "@/components/pid/PidCanvas";
 import { LeftSidebar } from "@/components/pid/LeftSidebar";
 import { RightPanel } from "@/components/pid/RightPanel";
 import { ExportTab } from "@/components/pid/ExportTab";
