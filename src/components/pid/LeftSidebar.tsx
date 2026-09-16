@@ -8,8 +8,11 @@ interface Props {
   image: ProjectImage | null;
   annotations: Annotation[];
   selectedIds: string[];
+  hoveredId: string | null;
+  exportRows: Record<string, number>;
   layers: Layers;
   onSelect: (ids: string[]) => void;
+  onHover: (id: string | null) => void;
   onOpenImage: (file: File) => void;
   onImportCsv: (file: File) => void;
   onImportJson: (file: File) => void;
