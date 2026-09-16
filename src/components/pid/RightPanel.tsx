@@ -128,12 +128,14 @@ export function RightPanel({
 function SelectedEditor({
   annotation,
   annotations,
+  exportRows,
   onPatch,
   onDelete,
   onDuplicate,
 }: {
   annotation: Annotation;
   annotations: Annotation[];
+  exportRows: Record<string, number>;
   onPatch: (id: string, patch: Partial<Annotation>) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -141,9 +143,27 @@ function SelectedEditor({
   const a = annotation;
   const m = metrics(annotationBBox(a));
   const isPipe = a.geometry.type === "polyline";
+  const [linkQuery, setLinkQuery] = useState("");
+
+  const linkOptions = annotations.filter((x) => {
+    if (x.id === a.id) return false;
+    const q = linkQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (x.shortId ?? "").toLowerCase().includes(q) ||
+      x.subLabel.toLowerCase().includes(q) ||
+      (x.value ?? "").toLowerCase().includes(q) ||
+      String(exportRows[x.id] ?? "").includes(q)
+    );
+  });
 
   return (
     <div className="space-y-3 p-3 text-xs">
+      <div className="flex items-center justify-between rounded-md border border-white/10 bg-white/5 px-2 py-1.5">
+        <span className="text-[11px] uppercase tracking-wider text-neutral-400">ID</span>
+        <span className="font-mono text-[11px] text-neutral-100">{idLabel(a, exportRows)}</span>
+      </div>
+
       <Row label="MainLabel">
         <select
           className={field}
