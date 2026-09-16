@@ -115,6 +115,7 @@ export function RightPanel({
           key={selected.id}
           annotation={selected}
           annotations={annotations}
+          exportRows={exportRows}
           onPatch={onPatch}
           onDelete={onDelete}
           onDuplicate={onDuplicate}
