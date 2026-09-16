@@ -26,6 +26,7 @@ export function RightPanel({
   image,
   annotations,
   selectedIds,
+  exportRows,
   defaults,
   setDefaults,
   onPatch,
