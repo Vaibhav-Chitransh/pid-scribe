@@ -204,22 +204,27 @@ function SelectedEditor({
         <input className={field} value={a.subType} onChange={(e) => onPatch(a.id, { subType: e.target.value })} />
       </Row>
 
-      <Row label="LinkedElement">
+      <Row label="Link to">
+        <input
+          className={`${field} mb-1`}
+          placeholder="Search by id, row, label or value"
+          value={linkQuery}
+          onChange={(e) => setLinkQuery(e.target.value)}
+        />
         <select
           className={field}
           value={a.linkedElementId ?? ""}
-          onChange={(e) => onPatch(a.id, { linkedElementId: e.target.value || null })}
+          onChange={(e) => onPatch(a.id, { linkedElementId: e.target.value || null, linkedElementLine: null })}
         >
           <option value="" className="bg-[#1e1e2e]">
             — none —
           </option>
-          {annotations
-            .filter((x) => x.id !== a.id)
-            .map((x, i) => (
-              <option key={x.id} value={x.id} className="bg-[#1e1e2e]">
-                #{i + 1} {x.subLabel} {x.value ? `(${x.value.slice(0, 14)})` : ""}
-              </option>
-            ))}
+          {linkOptions.map((x) => (
+            <option key={x.id} value={x.id} className="bg-[#1e1e2e]">
+              {idLabel(x, exportRows)} · {x.subLabel}
+              {x.value ? ` (${x.value.slice(0, 14)})` : ""}
+            </option>
+          ))}
         </select>
       </Row>
 
