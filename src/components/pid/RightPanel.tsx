@@ -57,7 +57,7 @@ export function RightPanel({
           value={defaults.mainLabel}
           onChange={(e) => {
             const main = e.target.value as MainLabel;
-            setDefaults({ mainLabel: main, subLabel: SUB_LABELS[main][0] ?? "" });
+            setDefaults({ ...defaults, mainLabel: main, subLabel: SUB_LABELS[main][0] ?? "" });
           }}
         >
           {(Object.keys(SUB_LABELS) as MainLabel[]).map((m) => (
