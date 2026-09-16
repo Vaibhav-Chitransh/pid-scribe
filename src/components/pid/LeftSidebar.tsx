@@ -184,13 +184,18 @@ export function LeftSidebar({
                     : [a.id],
                 )
               }
+              onMouseEnter={() => onHover(a.id)}
+              onMouseLeave={() => onHover(null)}
               className={`flex w-full items-center gap-2 border-b border-white/5 px-3 py-2 text-left text-xs transition-colors ${
-                selected ? "bg-[#2563eb]/25" : "hover:bg-white/5"
+                selected ? "bg-[#2563eb]/25" : hoveredId === a.id ? "bg-white/10" : "hover:bg-white/5"
               }`}
             >
               <span className="flex-1 truncate">
-                <span className="text-neutral-400">{a.mainLabel}</span>{" "}
-                <span className="font-medium">{a.subLabel}</span>
+                <span className="font-mono text-[10px] text-sky-400">{idLabel(a, exportRows)}</span>
+                <span className="block truncate">
+                  <span className="text-neutral-400">{a.mainLabel}</span>{" "}
+                  <span className="font-medium">{a.subLabel}</span>
+                </span>
                 <span className="block truncate text-[11px] text-neutral-500">{preview}</span>
               </span>
               {a.locked && <Lock className="h-3 w-3 shrink-0 text-amber-400" />}
