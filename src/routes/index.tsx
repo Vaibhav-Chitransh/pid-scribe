@@ -398,6 +398,7 @@ function Index() {
     ["branch", "Branch (B)", Squircle],
     ["crossing", "Crossing (C)", Diamond],
     ["port", "Port (O)", Circle],
+    ["split", "Split pipe (S)", Scissors],
     ["pan", "Pan (H)", Hand],
   ];
 
