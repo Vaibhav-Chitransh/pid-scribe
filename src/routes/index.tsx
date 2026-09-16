@@ -510,14 +510,19 @@ function Index() {
               image={imgEl}
               annotations={annotations}
               selectedIds={selectedIds}
+              hoveredId={hoveredId}
+              exportRows={exportRows}
               tool={tool}
               layers={layers}
               viewport={viewport}
               defaults={defaults}
               setViewport={setViewport}
               onSelect={setSelectedIds}
+              onHover={setHoveredId}
               onUpdate={onUpdate}
+              onCommit={onCommit}
               onCreate={onCreate}
+              onSplit={onSplit}
               onDeleteSelected={onDeleteSelected}
               onCursor={setCursor}
             />
