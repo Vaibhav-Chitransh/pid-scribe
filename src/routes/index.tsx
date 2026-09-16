@@ -551,6 +551,7 @@ function Index() {
             image={image}
             annotations={annotations}
             selectedIds={selectedIds}
+            exportRows={exportRows}
             defaults={defaults}
             setDefaults={setDefaults}
             onPatch={onPatch}
