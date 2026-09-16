@@ -77,6 +77,18 @@ export function RightPanel({
             </option>
           ))}
         </select>
+        <label className="block space-y-1">
+          <span className="text-[11px] uppercase tracking-wider text-neutral-400">Pipe stroke width</span>
+          <input
+            type="number"
+            min={1}
+            className={field}
+            value={defaults.pipeStrokeWidth}
+            onChange={(e) =>
+              setDefaults({ ...defaults, pipeStrokeWidth: Math.max(1, Number(e.target.value) || 1) })
+            }
+          />
+        </label>
       </div>
 
       {!selected ? (
