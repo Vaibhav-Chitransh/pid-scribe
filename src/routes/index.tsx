@@ -61,6 +61,7 @@ const DEFAULT_LAYERS: Layers = {
   markers: true,
   labels: true,
   links: true,
+  ids: true,
 };
 
 type Tab = "manual" | "auto" | "review" | "export";
