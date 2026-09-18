@@ -218,7 +218,7 @@ function Index() {
       refreshPolyline({
         ...src,
         id,
-        shortId,
+        ...(shortId ? { shortId } : {}),
         geometry: { type: "polyline", points, bbox: bboxOfPoints(points) },
       });
     // first half keeps the original identity, second half gets a fresh id
