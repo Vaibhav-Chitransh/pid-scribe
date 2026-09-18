@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Redo2,
+  Scissors,
   Spline,
   Square,
   Squircle,
@@ -164,11 +165,12 @@ function Index() {
   }, []);
 
   /* ---------- short ids ---------- */
+  const idSeen = useRef<Annotation[] | null>(null);
   useEffect(() => {
-    setAnnotations((prev) => {
-      const next = ensureShortIds(prev);
-      return next === prev ? prev : next;
-    });
+    if (idSeen.current === annotations) return;
+    const next = ensureShortIds(annotations);
+    idSeen.current = next;
+    if (next !== annotations) setAnnotations(next);
   }, [annotations]);
 
   /* ---------- annotation ops ---------- */
@@ -199,7 +201,7 @@ function Index() {
     let right: typeof pts;
     if (req.vertexIndex != null) {
       if (req.vertexIndex <= 0 || req.vertexIndex >= pts.length - 1) {
-        toast.error("Cannot split at an end point");
+        toast.error("Cannot split at a pipe endpoint");
         return;
       }
       left = pts.slice(0, req.vertexIndex + 1);
@@ -209,19 +211,20 @@ function Index() {
       right = [req.point, ...pts.slice(req.segIndex + 1)];
     }
     if (left.length < 2 || right.length < 2) {
-      toast.error("Split point is too close to an end");
+      toast.error("Cannot split at a pipe endpoint");
       return;
     }
 
-    const make = (points: typeof pts): Annotation =>
+    const make = (points: typeof pts, shortId: string | undefined, id: string): Annotation =>
       refreshPolyline({
         ...src,
-        id: uuid(),
-        shortId: allocateShortId(src),
+        id,
+        ...(shortId ? { shortId } : {}),
         geometry: { type: "polyline", points, bbox: bboxOfPoints(points) },
       });
-    const a = make(left);
-    const b = make(right);
+    // first half keeps the original identity, second half gets a fresh id
+    const a = make(left, src.shortId, src.id);
+    const b = make(right, allocateShortId(src), uuid());
 
     commit((prev) => {
       const withSplit = prev.flatMap((x) => (x.id === src.id ? [a, b] : [x]));
