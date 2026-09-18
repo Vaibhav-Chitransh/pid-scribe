@@ -200,7 +200,7 @@ function Index() {
     let right: typeof pts;
     if (req.vertexIndex != null) {
       if (req.vertexIndex <= 0 || req.vertexIndex >= pts.length - 1) {
-        toast.error("Cannot split at an end point");
+        toast.error("Cannot split at a pipe endpoint");
         return;
       }
       left = pts.slice(0, req.vertexIndex + 1);
