@@ -210,7 +210,7 @@ function Index() {
       right = [req.point, ...pts.slice(req.segIndex + 1)];
     }
     if (left.length < 2 || right.length < 2) {
-      toast.error("Split point is too close to an end");
+      toast.error("Cannot split at a pipe endpoint");
       return;
     }
 
