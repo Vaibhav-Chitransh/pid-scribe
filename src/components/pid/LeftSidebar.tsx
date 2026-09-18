@@ -132,6 +132,7 @@ export function LeftSidebar({
             ["markers", "Branch / Crossing / Port"],
             ["labels", "Labels"],
             ["links", "Link lines"],
+            ["ids", "Show IDs"],
           ] as [keyof Layers, string][]
         ).map(([key, label]) => (
           <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-neutral-300">
