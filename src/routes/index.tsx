@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Redo2,
+  Scissors,
   Spline,
   Square,
   Squircle,
