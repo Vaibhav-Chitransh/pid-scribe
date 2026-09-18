@@ -214,15 +214,16 @@ function Index() {
       return;
     }
 
-    const make = (points: typeof pts): Annotation =>
+    const make = (points: typeof pts, shortId: string | undefined, id: string): Annotation =>
       refreshPolyline({
         ...src,
-        id: uuid(),
-        shortId: allocateShortId(src),
+        id,
+        shortId,
         geometry: { type: "polyline", points, bbox: bboxOfPoints(points) },
       });
-    const a = make(left);
-    const b = make(right);
+    // first half keeps the original identity, second half gets a fresh id
+    const a = make(left, src.shortId, src.id);
+    const b = make(right, allocateShortId(src), uuid());
 
     commit((prev) => {
       const withSplit = prev.flatMap((x) => (x.id === src.id ? [a, b] : [x]));
