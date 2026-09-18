@@ -165,11 +165,12 @@ function Index() {
   }, []);
 
   /* ---------- short ids ---------- */
+  const idSeen = useRef<Annotation[] | null>(null);
   useEffect(() => {
-    setAnnotations((prev) => {
-      const next = ensureShortIds(prev);
-      return next === prev ? prev : next;
-    });
+    if (idSeen.current === annotations) return;
+    const next = ensureShortIds(annotations);
+    idSeen.current = next;
+    if (next !== annotations) setAnnotations(next);
   }, [annotations]);
 
   /* ---------- annotation ops ---------- */
